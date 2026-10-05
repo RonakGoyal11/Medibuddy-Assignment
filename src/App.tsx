@@ -1,24 +1,37 @@
-import React, { useState } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { BrowserRouter, Routes, Route, useSearchParams } from 'react-router-dom';
 import './App.css';
 import { type DrugLabelResult, type FdaApiResponse } from './types';
 import { Navbar } from './components/Navbar';
 import { SearchBar } from './components/SearchBar';
 import { DrugCard } from './components/DrugCard';
+// Change to './pages/DrugDetail' if DrugDetail is located inside src/pages/
 import { DrugDetail } from './DrugDetail';
 
 const SearchHome: React.FC = () => {
-  const [query, setQuery] = useState<string>('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlQuery = searchParams.get('q') || '';
+
+  const [query, setQuery] = useState<string>(urlQuery);
   const [results, setResults] = useState<DrugLabelResult[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasSearched, setHasSearched] = useState<boolean>(false);
+  const [hasSearched, setHasSearched] = useState<boolean>(Boolean(urlQuery));
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmedQuery = query.trim();
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-    if (!trimmedQuery) return;
+  const executeSearch = useCallback(async (searchTerm: string) => {
+    const trimmed = searchTerm.trim();
+    if (!trimmed) {
+      setResults([]);
+      setHasSearched(false);
+      return;
+    }
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
 
     setIsLoading(true);
     setError(null);
@@ -26,34 +39,60 @@ const SearchHome: React.FC = () => {
 
     try {
       const endpoint = `https://api.fda.gov/drug/label.json?search=openfda.brand_name:"${encodeURIComponent(
-        trimmedQuery
+        trimmed
       )}"&limit=20`;
 
-      const response = await fetch(endpoint);
+      const response = await fetch(endpoint, {
+        signal: abortControllerRef.current.signal,
+      });
 
+      // FDA API returns 404 when no items match
       if (response.status === 404) {
         setResults([]);
         return;
       }
 
       if (!response.ok) {
-        throw new Error(`Server returned status: ${response.status}`);
+        throw new Error(`FDA service responded with status: ${response.status}`);
       }
 
       const data: FdaApiResponse = await response.json();
       setResults(data.results ?? []);
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return; // Ignore intentional fetch cancel
+      }
       setError(err instanceof Error ? err.message : 'An unexpected error occurred.');
       setResults([]);
     } finally {
       setIsLoading(false);
     }
+  }, []);
+
+  // Synchronize on initial mount or when returning back via browser history
+  useEffect(() => {
+    if (urlQuery) {
+      setQuery(urlQuery);
+      executeSearch(urlQuery);
+    }
+  }, [urlQuery, executeSearch]);
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = query.trim();
+
+    if (!trimmed) return;
+
+    // Update query params in the URL (enables sharing & preserves state on navigation)
+    setSearchParams({ q: trimmed });
+    executeSearch(trimmed);
   };
 
   return (
     <div className="pixabay-layout">
       <Navbar />
 
+      {/* Hero Section */}
       <section className="hero-banner">
         <div className="hero-content">
           <span className="hero-tag">FDA Clinical Drug Label Database</span>
@@ -66,11 +105,12 @@ const SearchHome: React.FC = () => {
             query={query}
             isLoading={isLoading}
             onQueryChange={setQuery}
-            onSubmit={handleSearch}
+            onSubmit={handleSearchSubmit}
           />
         </div>
       </section>
 
+      {/* Results Section */}
       <main className="results-container">
         {isLoading && (
           <div className="state-notice">
@@ -81,7 +121,7 @@ const SearchHome: React.FC = () => {
 
         {error && !isLoading && (
           <div className="state-notice error-notice">
-            <p>{error}. Please verify the query and try again.</p>
+            <p>{error}. Please verify the drug name and try again.</p>
           </div>
         )}
 
@@ -116,10 +156,12 @@ const SearchHome: React.FC = () => {
 
 export const App: React.FC = () => {
   return (
-    <Routes>
-      <Route path="/" element={<SearchHome />} />
-      <Route path="/drug/:id" element={<DrugDetail />} />
-    </Routes>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<SearchHome />} />
+        <Route path="/drug/:id" element={<DrugDetail />} />
+      </Routes>
+    </BrowserRouter>
   );
 };
 
