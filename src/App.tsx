@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
+import { Routes, Route } from 'react-router-dom';
 import './App.css';
 import { type DrugLabelResult, type FdaApiResponse } from './types';
-
-
 import { Navbar } from './components/Navbar';
 import { SearchBar } from './components/SearchBar';
 import { DrugCard } from './components/DrugCard';
+import { DrugDetail } from './DrugDetail';
 
-export const App: React.FC = () => {
+const SearchHome: React.FC = () => {
   const [query, setQuery] = useState<string>('');
   const [results, setResults] = useState<DrugLabelResult[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -43,9 +43,7 @@ export const App: React.FC = () => {
       const data: FdaApiResponse = await response.json();
       setResults(data.results ?? []);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'An unexpected error occurred.'
-      );
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred.');
       setResults([]);
     } finally {
       setIsLoading(false);
@@ -56,7 +54,6 @@ export const App: React.FC = () => {
     <div className="pixabay-layout">
       <Navbar />
 
-      {/* Hero Section */}
       <section className="hero-banner">
         <div className="hero-content">
           <span className="hero-tag">FDA Clinical Drug Label Database</span>
@@ -74,7 +71,6 @@ export const App: React.FC = () => {
         </div>
       </section>
 
-      {/* Main Results Container */}
       <main className="results-container">
         {isLoading && (
           <div className="state-notice">
@@ -115,6 +111,15 @@ export const App: React.FC = () => {
         )}
       </main>
     </div>
+  );
+};
+
+export const App: React.FC = () => {
+  return (
+    <Routes>
+      <Route path="/" element={<SearchHome />} />
+      <Route path="/drug/:id" element={<DrugDetail />} />
+    </Routes>
   );
 };
 
